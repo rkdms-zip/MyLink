@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// 마이링크 보안 규칙: 읽기는 누구나, 쓰기는 본인만
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // 프로필
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+
+      // 링크
+      match /links/{linkId} {
+        allow read: if true;
+        allow create, delete: if isOwner(userId);
+        // 본인은 자유롭게 수정, 다른 사람은 clicks 를 정확히 +1 하는 것만 허용
+        allow update: if isOwner(userId)
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clicks'])
+              && request.resource.data.clicks == resource.data.get('clicks', 0) + 1);
+      }
+    }
+
+    // username → userId 매핑 (중복 방지)
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && username.matches('^[a-z0-9_]{3,20}$');
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+  }
+}
